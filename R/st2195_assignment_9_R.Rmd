@@ -1,0 +1,279 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+# Practice Assignment 9
+
+```{r}
+#import library's
+library('mlr3')
+library('mlr3learners')
+library('mlr3pipelines')
+library('mlr3tuning')
+library('paradox')
+```
+
+
+```{r}
+#import data
+df<-read.csv("titanic.csv")[, c("Survived","Pclass","Sex","Age","Fare","Embarked")]
+head(df)
+```
+
+
+
+Passengers gender and ticket class based on survival
+
+```{r}
+#linear regression
+
+df2<-read.csv("titanic.csv")[, c("Survived","Pclass","Sex")]
+
+task <- TaskRegr$new('titanic2', backend=df2, target = 'Survived')
+measure <- msr('regr.mse')
+
+learner_lm <- lrn('regr.lm')
+
+gr_lm <- po('imputemean') %>>%
+  po(learner_lm)
+glrn_lm <- GraphLearner$new(gr_lm)
+
+set.seed(1)
+train_set <- sample(task$nrow, 0.7 * task$nrow) 
+test_set <- setdiff(seq_len(task$nrow), train_set)
+glrn_lm$train(task, row_ids = train_set)
+glrn_lm$predict(task, row_ids = test_set)$score() 
+```
+
+Passengers age per ticket class based on survival
+
+```{r}
+#linear regression
+
+df3<-read.csv("titanic.csv")[, c("Survived","Pclass","Age")]
+
+task <- TaskRegr$new('titanic3', backend=df3, target = 'Survived')
+measure <- msr('regr.mse')
+
+learner_lm <- lrn('regr.lm')
+
+gr_lm <- po('imputemean') %>>%
+  po(learner_lm)
+glrn_lm <- GraphLearner$new(gr_lm)
+
+set.seed(1)
+train_set <- sample(task$nrow, 0.7 * task$nrow) 
+test_set <- setdiff(seq_len(task$nrow), train_set)
+glrn_lm$train(task, row_ids = train_set)
+glrn_lm$predict(task, row_ids = test_set)$score() 
+```
+
+Family size per ticket class
+
+```{r}
+df4<-read.csv("titanic.csv")[, c("Survived","Pclass","SibSp","Parch")]
+head(df4)
+```
+
+```{r}
+#create new column of family size
+df4$Family_class <- df4$SibSp + df4$Parch
+```
+
+```{r}
+task <- TaskRegr$new('titanic4', backend=df4, target = 'Survived')
+```
+
+```{r}
+#ridge regression
+learner_ridge <- lrn('regr.glmnet') 
+learner_ridge$param_set$values <- list(alpha = 0)
+gr_ridge <- po('scale') %>>%
+  po('imputemean') %>>%
+  po(learner_ridge)
+glrn_ridge <- GraphLearner$new(gr_ridge)
+```
+
+```{r}
+#Tuning environment
+tune_lambda <- ParamSet$new (list(
+ ParamDbl$new('regr.glmnet.lambda', lower = 0.001, upper = 2)
+))
+tuner<-tnr('grid_search')
+terminator <- trm('evals', n_evals = 20)
+#Combine new learner
+at_ridge <- AutoTuner$new(
+  learner = glrn_ridge,
+  resampling = rsmp('cv', folds = 3),
+  measure = measure,
+  search_space = tune_lambda,
+  terminator = terminator,
+  tuner = tuner
+)
+#Train learner
+at_ridge$train(task, row_ids = train_set)
+```
+```{r}
+at_ridge$predict(task, row_ids = test_set)$score() 
+```
+
+
+Family size and survival rate
+
+```{r}
+#create new column of family size
+df5<-read.csv("titanic.csv")[, c("Survived","Pclass","SibSp","Parch")]
+df5$Family_class <- df4$SibSp + df4$Parch+1
+```
+
+```{r}
+task <- TaskRegr$new('titanic5', backend=df5, target = 'Survived')
+```
+
+```{r}
+#Ridge Regression
+learner_ridge <- lrn('regr.glmnet') 
+learner_ridge$param_set$values <- list(alpha = 0, lambda = 0.01)
+gr_ridge <- po('scale') %>>%
+  po('imputemean') %>>%
+  po(learner_ridge)
+glrn_ridge<- GraphLearner$new(gr_ridge)
+glrn_ridge$train(task, row_ids = train_set)
+glrn_ridge$predict(task, row_ids = test_set)$score() 
+```
+```{r}
+#Lasso Regression
+learner_ridge <- lrn('regr.glmnet') 
+learner_ridge$param_set$values <- list(alpha = 1, lambda = 0.01)
+gr_ridge <- po('scale') %>>%
+  po('imputemean') %>>%
+  po(learner_ridge)
+glrn_ridge<- GraphLearner$new(gr_ridge)
+glrn_ridge$train(task, row_ids = train_set)
+glrn_ridge$predict(task, row_ids = test_set)$score() 
+```
+
+Random Forests
+
+```{r, warning=FALSE, results='hide', error=FALSE,fig.keep='all'}
+learner_rf <- lrn('regr.ranger') 
+learner_rf$param_set$values <- list(min.node.size = 4)
+gr_rf <- po('scale') %>>%
+  po('imputemean') %>>%
+  po(learner_rf)
+glrn_rf <- GraphLearner$new(gr_rf)
+tune_ntrees <- ParamSet$new (list(
+ ParamInt$new('regr.ranger.num.trees', lower = 50, upper = 600)
+))
+at_rf <- AutoTuner$new(
+  learner = glrn_rf,
+  resampling = rsmp('cv', folds = 3),
+  measure = measure,
+  search_space = tune_ntrees,
+  terminator = terminator,
+  tuner = tuner
+)
+at_rf$train(task, row_ids = train_set)
+```
+```{r}
+at_rf$predict(task, row_ids = test_set)$score() 
+```
+
+K-nearest neighbor
+
+```{r}
+df6<-read.csv("titanic.csv")[, c("Survived","Pclass","Sex","Age","Fare")]
+df6$Sex <- as.numeric(as.character(df6$Sex)) # converts rate into numerical
+head(df6)
+```
+
+```{r}
+
+library(kknn)
+
+task <- TaskRegr$new('titanic6', backend=df6, target = 'Survived')
+measure <- msr('regr.mse')
+
+mlr_learners$get("regr.kknn")
+
+learner_kknn = LearnerRegrKKNN$new()
+
+gr_kknn <- po('imputemean') %>>%
+  po(learner_kknn)
+glrn_kknn <- GraphLearner$new(gr_kknn)
+
+set.seed(1)
+train_set <- sample(task$nrow, 0.7 * task$nrow) 
+test_set <- setdiff(seq_len(task$nrow), train_set)
+glrn_kknn$train(task, row_ids = train_set)
+glrn_kknn$predict(task, row_ids = test_set)$score() 
+```
+
+Rpart
+
+```{r}
+df6<-read.csv("titanic.csv")[, c("Survived","Pclass","Sex","Age","Fare")]
+df6$Sex[df$Sex == 'male'] <- 0
+df6$Sex[df$Sex == 'female'] <- 1
+df6$Sex <- as.integer(df6$Sex)
+head(df6)
+```
+Xgboost
+
+```{r}
+library("xgboost")
+
+task <- TaskRegr$new('titanic6', backend=df6, target = 'Survived')
+measure <- msr('regr.mse')
+
+mlr_learners$get("regr.xgboost")
+
+learner_xgboost = mlr3::lrn("regr.rpart")
+
+gr_xgboost <- po('imputemean') %>>%
+  po(learner_xgboost)
+glrn_xgboost <- GraphLearner$new(gr_xgboost)
+
+set.seed(1)
+train_set <- sample(task$nrow, 0.7 * task$nrow) 
+test_set <- setdiff(seq_len(task$nrow), train_set)
+glrn_xgboost$train(task, row_ids = train_set)
+glrn_xgboost$predict(task, row_ids = test_set)$score() 
+```
+
+
+
+Benchmark
+
+```{r}
+task <- TaskRegr$new('titanic7', backend=df4, target = 'Survived')
+```
+
+
+```{r, warning=FALSE, results='hide', error=FALSE,fig.keep='all'}
+set.seed(100)
+lrn_list <- list(
+  glrn_lm,
+  glrn_ridge,
+  at_ridge,
+  at_rf
+)
+
+bm_design <- benchmark_grid(task = task, resamplings = rsmp('cv', folds = 4), learners = lrn_list)
+bmr <- benchmark(bm_design, store_models = TRUE)
+```
+
+
+plot
+
+```{r}
+library('mlr3viz')
+library('ggplot2')
+autoplot(bmr) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
